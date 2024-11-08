@@ -2,7 +2,6 @@
 
 # les fichiers :
 
-[common_one.R](common_one.R)  contient le code final et complet
+[common_one.R](common_one.R) :   celui contient le code complet et fonctionel
 
-
-R.R  celui et juste pour les essais etc..
+[R.R](R.R) : celui c'est juste pour les essais etc ..
