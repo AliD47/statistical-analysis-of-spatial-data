@@ -2,7 +2,7 @@
 
 # les fichiers :
 
-### **common_one.R**  contient le code final et complet
-[[common_one.R]]
-[common_one.R](common_one.R)
+[common_one.R](common_one.R)  contient le code final et complet
+
+
 R.R  celui et juste pour les essais etc..
