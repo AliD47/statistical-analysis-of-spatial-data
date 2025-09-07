@@ -5,10 +5,10 @@ The objective is to detect spatial dependencies, identify outliers, and generate
 
 
 ## Files
-[DEM_grid.csv](DEM_grid.csv) :  Digital Elevation Model (DEM) grid providing terrain elevation data.
-[monthly_mean_delimited.csv](monthly_mean_delimited.csv) : Main dataset containing groundwater depth measurements.
-[grid.csv](grid.csv) : Spatial grid used for the elevation.
-[projet_spatial_data.rmd](projet_spatial_data.rmd) : Main script with the statistical analyses (R markdown file).
+* [DEM_grid.csv](DEM_grid.csv) :  Digital Elevation Model (DEM) grid providing terrain elevation data.
+* [monthly_mean_delimited.csv](monthly_mean_delimited.csv) : Main dataset containing groundwater depth measurements.
+* [grid.csv](grid.csv) : Spatial grid used for the elevation.
+* [projet_spatial_data.rmd](projet_spatial_data.rmd) : Main script with the statistical analyses (R markdown file).
 
 ## How to run the code
 Install R (version 4.4.1 or later) and the required R packages:
