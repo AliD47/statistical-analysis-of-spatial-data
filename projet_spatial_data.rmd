@@ -35,7 +35,7 @@ theme_set(theme_classic())
 
 ```{r, include = FALSE}
 #setwd("Z:/LBRTI2101A/Travail")
-setwd("C:/Users/Administrator/Desktop/STUDY/UCL/spacial stats")
+setwd("C:/ ... ")
 ```
 
 
@@ -762,6 +762,7 @@ results_2021 <- process_year(2021)
 
 
 ```
+
 
 
 
