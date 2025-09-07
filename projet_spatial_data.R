@@ -1,0 +1,653 @@
+
+# list of packages used for running the code chunks below
+library(ggplot2)
+install.packages("ggnewscale")
+library(ggnewscale)
+install.packages("ggrepel")
+library(ggrepel)
+
+library(gridExtra)
+library(car)
+library(MASS)
+library(PerformanceAnalytics)
+library(stats)
+library(tidyverse)
+library(viridis)
+library(lubridate)
+library(data.table)
+library(fields)
+library(gstat)
+install.packages("pander")
+library(pander)
+library(visreg)
+library(data.table)
+install.packages("matrixStats")
+library(matrixStats)
+
+theme_set(theme_classic())
+
+#setwd("Z:/LBRTI2101A/Travail")
+setwd("C:/Users/Administrator/Desktop/STUDY/UCL/spacial stats")
+
+# Loading the data
+monthly_mean_delimited <- read.csv(file = "monthly_mean_delimited.csv", header = TRUE, sep = ",", row.names = 1)
+DEM_grid <- read.csv(file = "DEM_grid.csv", header = TRUE, sep = ",")
+
+# Count values in 'mean_gse_gwe' column that are lower than 0
+count_negative_values <- sum(monthly_mean_delimited$mean_gse_gwe > 0)
+# Print the result
+print(count_negative_values)
+
+head(monthly_mean_delimited)
+str(monthly_mean_delimited)
+
+# Creating a dataframe that contains all the duplicates (same year, same month, same coordinates (x, y) but different station names and mean_gse_gwe values)
+duplicates <- monthly_mean_delimited %>%
+  group_by(x, y, year, month) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+# Viewing the duplicates
+duplicates %>% 
+  filter(year == 2015 & month == 10) %>%
+  as.data.frame() %>% 
+  head()
+
+# Jeu de données original mais avec les réplicats remplacés par une seule ligne dont la mean_gse_gwe est la moyenne de tous les réplicats.
+# Le premier site_code dans chaque groupe de réplicats est considéré comme le site_code de la nouvelle ligne
+
+combined_data <- monthly_mean_delimited %>%
+  group_by(x, y, year, month) %>%
+  summarize(
+    mean_gse_gwe = mean(mean_gse_gwe, na.rm = TRUE),
+    site_code = first(site_code),
+    longitude = first(longitude),
+    latitude = first(latitude),
+    .groups = 'drop'
+  )
+
+# Rearrangement de l'ordre des colonnes
+combined_data <- combined_data %>% 
+  select(site_code, year, month, mean_gse_gwe, x, y, longitude, latitude)
+
+# Le nouveau dataframe n'a plus de réplicats
+combined_data %>% 
+  group_by(x, y, year, month) %>%
+  filter(n() > 1) %>%
+  ungroup() %>% 
+  filter(year == 2015 & month == 10) %>%
+  as.data.frame() %>% 
+  head()
+
+# Duplicated stations:
+# exemple: stations 356025N1192413W001 et 356025N1192413W002 à 1cm l'une de l'autre, mais même latitude et longitude... (en octobre 2015)
+
+monthly_mean_delimited %>% 
+  filter(year == 2015 & month == 10) %>% 
+  filter(site_code == "356025N1192413W001" | site_code == "356025N1192413W002") %>% 
+  head()
+
+# Mais on décide de n'enlever que les duplicats pour x et y (pas pour la longitude et latitude) car ce ont fait krigeage sur coordonnées x et y et c'est là que les duplicats posent problème
+
+# Remplacement du jeu de données de départ par le jeu de données sans les réplicats
+monthly_mean_delimited <- combined_data
+# On passe d'un jeu de données avec 102459 lignes à un jeu de données avec 95715 lignes.
+
+# Valeurs mesurées durant les mois d’octobre entre 2015 et 2021
+october_mean <- monthly_mean_delimited[monthly_mean_delimited$month == 10 & monthly_mean_delimited$year %in% 2015:2021,]
+
+summary(october_mean)
+
+# Grouping the data into the different stations and calculating the mean depth for each station
+mean_depth <- october_mean %>% 
+  group_by(site_code, x, y, longitude, latitude) %>% 
+  summarise(site_mean_depth = mean(mean_gse_gwe))
+
+# Converting the tibble object into a data frame object
+mean_depth <- as.data.frame(mean_depth)
+head(mean_depth)
+
+# Selecting the station 353539N1191118W001
+selected_station = mean_depth[mean_depth$site_code == "353539N1191118W001",]
+
+
+# Dessin de la carte des profondeurs moyennes + altitude + encercler point de station 
+ggplot(mean_depth) +
+  geom_tile(data = DEM_grid, aes(x = x, y = y, fill = elevation)) +
+  scale_fill_gradient(name = "Elévation du sol [pieds]", low = "white", high = "black") +
+  geom_point(aes(x = x, y = y, color = site_mean_depth), size = 2) +
+  scale_color_viridis(name = "Profondeur moyenne \n de la nappe \n phréatique [pieds]", option = 'turbo') +
+  geom_point(data = selected_station, aes(x, y),
+                 pch = 21, fill = NA, size = 4, colour = "red", stroke = 1) +
+  labs(x = "x" , y = "y" , title = "Carte de la profondeur moyenne de la nappe phréatique en octobre \n entre 2015 et 2021 à toutes les stations de mesure \n et élévation du sol autour de Bakersfield") +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+
+
+# Série temporelle profondeur nappe
+
+station_monthly_mean <- monthly_mean_delimited[monthly_mean_delimited$site_code == "353539N1191118W001",]
+station_monthly_mean$date <- as.Date(paste(station_monthly_mean$year, station_monthly_mean$month, "01", sep="-"), "%Y-%m-%d")
+
+head(station_monthly_mean)
+
+# Plotting of the time series
+ggplot(station_monthly_mean) + geom_point(aes(x = date, y = mean_gse_gwe)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(x = "Date", y = "Profondeur moyenne mensuelle \n de la nappe phréatique [pieds]") + 
+  scale_y_reverse( ) +
+  ggtitle("Niveau de la nappe phréatique pour la station 353539N1191118W001") +
+  theme_light() +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(angle = 90,  hjust = 0.5, vjust = 0.5))
+
+
+# Créer un fonction qui fait la régression linéaire pour n'importe quelle année entre 2015 et 2021:
+linear_reg <- function(year){
+  # Selecting the right year in the data frame
+  yearly_october_mean <- october_mean[october_mean$year == year,]
+  
+  # Creating a grid for the elevation prediction (at the measurement stations)
+  stations_grid <- yearly_october_mean[c("x","y")]
+  
+  # Predicting the elevation at the stations and adding it to the data frame
+  elevation_voronoi <- idw(formula = elevation ~ 1, data = DEM_grid,
+              locations = ~ x + y, newdata = stations_grid,
+              nmax = 1)
+
+  yearly_october_mean$elevation <- elevation_voronoi$var1.pred
+  
+  # Doing the linear regression
+  mod <- lm(mean_gse_gwe ~ elevation, data = yearly_october_mean)
+  # Printing the results
+  print(summary(mod))
+  
+  print("Confindence intervals")
+  print(confint(mod))
+  
+  print(anova(mod))
+  
+  # Checking if the linear regression hypotheses are met
+  # (normal distribution of the residues, homoscedasticity)
+  par(mfrow=c(2,2))
+  plot(mod)
+  
+  # Visualising the linear regression
+  par(mfrow=c(1,1))
+  visreg(mod, main = paste("Visualisation de la droite de régression \n et son intervalle de confiance pour l'année", year))
+  
+  # Calculating the predicted depth from the linear model
+  xpred <-  data.frame(elevation = yearly_october_mean$elevation)
+  pred <- predict(mod, xpred, interval = "prediction")
+  yearly_october_mean$depth.pred <- pred
+  yearly_october_mean$depth.res <- residuals(mod)
+  
+  lm_results <- list(yearly_october_mean, mod)
+  return(lm_results)
+}
+
+# Fonction qui dessine la répartition spatiale de la profondeur de la nappe avant et après avoir retiré l’effet de l’altitude du sol
+
+residuals_plot <- function(yearly_october_mean){
+  year <-  yearly_october_mean$year[1]
+  
+  plot_mean_depth <- ggplot(yearly_october_mean) +
+    geom_point(aes(x = x, y = y, color = mean_gse_gwe), size = 2) +
+    scale_color_viridis(name = "Profondeur moyenne \n de la nappe \n phréatique [pieds]", option = 'turbo') +
+    labs(x = "x" , y = "y" , title = paste("Carte de la profondeur moyenne de la nappe phréatique en octobre", year,"\n à toutes les stations de mesure autour de Bakersfield")) +
+    theme(plot.title = element_text(hjust = 0.5))
+
+
+  plot_res <- ggplot(yearly_october_mean) +
+      geom_point(aes(x = x, y = y, color = depth.res), size = 2) +
+      scale_color_viridis(name = "Résidus de la \n profondeur moyenne \n de la nappe \n phréatique [pieds]", option = 'turbo') +
+      labs(x = "x" , y = "y" , title = paste("Carte des résidus de la profondeur moyenne de la nappe phréatique en octobre", year,"\n à toutes les stations de mesure autour de Bakersfield")) +
+      theme(plot.title = element_text(hjust = 0.5))
+  
+  grid.arrange(plot_mean_depth, plot_res)
+}
+
+
+                    # Linear regression for the year 2015
+
+lm_results_2015 <- linear_reg(2015)
+october_mean_2015 <- lm_results_2015[[1]]
+lm_2015 <- lm_results_2015[[2]]
+
+head(october_mean_2015)
+ggplot(october_mean_2015) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+hist(october_mean_2015$depth.res,main = "Histogram des résidus pour l'annee 2015",xlab = "résidus")
+
+# Shapiro-Wilk normality test with a direct check
+shapiro_result_2015 <- shapiro.test(october_mean_2015$depth.res)
+if (shapiro_result_2015$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2015$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2015$p.value))
+}
+
+                    # Linear regression for the year 2016
+
+lm_results_2016 <- linear_reg(2016)
+october_mean_2016 <- lm_results_2016[[1]]
+lm_2016 <- lm_results_2016[[2]]
+
+head(october_mean_2016)
+ggplot(october_mean_2016) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+hist(october_mean_2016$depth.res,main = "Histogram des résidus pour l'annee 2016",xlab = "résidus")
+
+# Shapiro-Wilk normality test with a direct check
+shapiro_result_2016 <- shapiro.test(october_mean_2016$depth.res)
+if (shapiro_result_2016$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2016$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2016$p.value))
+}
+
+
+                    # Linear regression for the year 2017
+
+lm_results_2017 <- linear_reg(2017)
+october_mean_2017 <- lm_results_2017[[1]]
+lm_2017 <- lm_results_2017[[2]]
+
+head(october_mean_2017)
+ggplot(october_mean_2017) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+hist(october_mean_2017$depth.res, main = "Histogram des résidus pour l'année 2017", xlab = "résidus")
+
+# For October 2017
+shapiro_result_2017 <- shapiro.test(october_mean_2017$depth.res)
+if (shapiro_result_2017$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2017$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2017$p.value))
+}
+
+                    # Linear regression for the year 2018
+
+lm_results_2018 <- linear_reg(2018)
+october_mean_2018 <- lm_results_2018[[1]]
+lm_2018 <- lm_results_2018[[2]]
+
+head(october_mean_2018)
+ggplot(october_mean_2018) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+hist(october_mean_2018$depth.res, main = "Histogram des résidus pour l'année 2018", xlab = "résidus")
+
+# For October 2018
+shapiro_result_2018 <- shapiro.test(october_mean_2018$depth.res)
+if (shapiro_result_2018$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2018$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2018$p.value))
+}
+
+                    # Linear regression for the year 2019
+
+lm_results_2019 <- linear_reg(2019)
+october_mean_2019 <- lm_results_2019[[1]]
+lm_2019 <- lm_results_2019[[2]]
+
+head(october_mean_2019)
+ggplot(october_mean_2019) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+hist((october_mean_2019$depth.res), main = "Histogram des résidus pour l'année 2019", xlab = "résidus")
+
+# For October 2019
+shapiro_result_2019 <- shapiro.test(october_mean_2019$depth.res)
+if (shapiro_result_2019$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2019$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2019$p.value))
+}
+
+                    # Linear regression for the year 2020
+
+lm_results_2020 <- linear_reg(2020)
+october_mean_2020 <- lm_results_2020[[1]]
+lm_2020 <- lm_results_2020[[2]]
+
+head(october_mean_2020)
+ggplot(october_mean_2020) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+hist(october_mean_2020$depth.res, main = "Histogram des résidus pour l'année 2020", xlab = "résidus")
+
+# For October 2020
+shapiro_result_2020 <- shapiro.test(october_mean_2020$depth.res)
+if (shapiro_result_2020$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2020$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2020$p.value))
+}
+
+# Linear regression for the year 2021
+lm_results_2021 <- linear_reg(2021)
+october_mean_2021 <- lm_results_2021[[1]]
+lm_2021 <- lm_results_2021[[2]]
+
+head(october_mean_2021)
+
+ggplot(october_mean_2021) +
+  geom_point(aes(x = elevation, y = depth.res)) +
+  geom_hline(aes(yintercept = 0))
+
+hist((october_mean_2021$depth.res),main = "Histogram des résidus pour l'annee 2021",xlab = "résidus")
+
+# For October 2021
+shapiro_result_2021 <- shapiro.test(october_mean_2021$depth.res)
+if (shapiro_result_2021$p.value > 0.01) {
+  print(paste("IS normal, pvalue =", shapiro_result_2021$p.value))
+} else {
+  print(paste("NOT normal, pvalue =", shapiro_result_2021$p.value))
+}
+
+residuals_plot(october_mean_2015)
+residuals_plot(october_mean_2016)
+residuals_plot(october_mean_2017)
+residuals_plot(october_mean_2018)
+residuals_plot(october_mean_2019)
+residuals_plot(october_mean_2020)
+residuals_plot(october_mean_2021)
+
+# Variogramme expérimental - fonction qui dessine le variogramme expérimental des résidus
+# et retourne l'objet res.vario (avec les données du variogramme expérimental).
+exp_variogram <- function(yearly_october_mean){
+  year <- yearly_october_mean$year[1]
+  
+  res.gstat <- gstat(formula = depth.res ~ 1, data = yearly_october_mean, locations = ~x+y)
+  
+  # Max distance to estimate the variogram
+  stations_coord <- cbind(yearly_october_mean$x, yearly_october_mean$y)
+  hmax <- max(dist(stations_coord)) / 2
+  
+  res.vario <- variogram(res.gstat, cutoff = hmax)
+  variance_res <- var(yearly_october_mean$depth.res)
+  
+  # Plot the experimental variogram
+  vario_plot <- ggplot(res.vario) +
+    geom_point(aes(x = dist, y = gamma, color = "Semivariances mesurées")) +
+    geom_hline(aes(yintercept = variance_res, linetype = "Variance des résidus")) +
+    labs(title = paste("Variogramme expérimental des \n résidus de la profondeur des eaux \n souterraines en octobre", year, sep = " "), x = "distance", y = "semivariance") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_x_continuous(limits = c(0, max(res.vario$dist))) +
+    scale_y_continuous(limits = c(0, max(res.vario$gamma))) +
+    scale_color_manual(values = c("Semivariances mesurées" = "black", "Fitted variogram model" = "blue"), name = NULL) +
+    scale_linetype_manual(values = c("Variance des résidus" = "dashed"), name = NULL)
+  
+  print(vario_plot)
+  
+  return(res.vario)
+}
+
+# Fonction qui calcule les paramètres du variogramme
+# Les paramètres du modèle de variogramme ont des valeurs par défaut qui peuvent être changées
+model_variogram <- function(res.vario, year, psill = 8000, model = "Exp", range = 35000, nugget = 2400){
+  
+  res.vario.model <- vgm(psill, model, range, nugget)
+  res.fit.model <- fit.variogram(res.vario, model = res.vario.model)
+  res.vario.model.values <- variogramLine(res.fit.model, maxdist = max(res.vario$dist))
+  
+  model_vario_plot <- ggplot(res.vario) +
+    geom_point(aes(x = dist, y = gamma, color = "Semivariances mesurées")) +
+    geom_line(data = res.vario.model.values, aes(x = dist, y = gamma, color = "Modèle de variogramme ajusté")) +
+    labs(title = paste("Variogramme des résidus \n de la profondeur des eaux \n souterraines en octobre", year, sep = " "), x = "distance", y = "semivariance") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_x_continuous(limits = c(0, max(res.vario$dist))) +
+    scale_y_continuous(limits = c(0, max(res.vario$gamma, res.vario.model.values$gamma))) +
+    scale_color_manual(values = c("Semivariances mesurées" = "black", "Modèle de variogramme ajusté" = "blue"), name = NULL)
+    
+  print(model_vario_plot)
+  
+  return(res.fit.model)
+}
+
+# fonction pour le graphique des variogramme modélisés manuellement
+plot_vario <- function(res.vario, res.vario.model.values,year){
+  g <- ggplot(res.vario) +
+    geom_point(aes(x = dist, y = gamma, color = "Semivariances mesurées")) +
+    geom_line(data = res.vario.model.values, aes(x = dist, y = gamma, color = "Modèle de variogramme ajusté")) +
+    labs(title = paste("Variogramme des résidus \n de la profondeur des eaux \n souterraines en octobre", year, sep = " "), x =       "distance", y = "semivariance") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_x_continuous(limits = c(0, max(res.vario$dist))) +
+    scale_y_continuous(limits = c(0, max(res.vario$gamma, res.vario.model.values$gamma))) +
+    scale_color_manual(values = c("Semivariances mesurées" = "black", "Modèle de variogramme ajusté" = "blue"), name = NULL)
+  
+  print(g)
+}
+
+# Pour octobre 2015
+res.gstat <- gstat(formula = depth.res ~ 1, data = october_mean_2015, locations = ~x+y)
+res.vario_2015 <- variogram(res.gstat, cutoff = 55000, width = 5000)
+plot(res.vario_2015)
+
+res.fit.model_2015 <- model_variogram(res.vario_2015, 2015, psill = 7300, range = 35000, nugget = 1700, model = "Sph")
+
+print(res.fit.model_2015)
+
+
+# Pour octobre 2016
+res.gstat <- gstat(formula = depth.res ~ 1, data = october_mean_2016, locations = ~x+y)
+res.vario_2016 <- variogram(res.gstat, cutoff = 42000, width = 5000)
+plot(res.vario_2016)
+
+res.fit.model_2016 <- model_variogram(res.vario_2016, 2016, psill = 6500, range = 30000, nugget = 2500, model = "Sph")
+
+print(res.fit.model_2016)
+
+
+
+# Pour octobre 2017
+
+res.gstat <- gstat(formula = depth.res ~ 1, data = october_mean_2017, locations = ~x+y)
+res.vario_2017 <- variogram(res.gstat, cutoff = 52000, width = 5000)
+plot(res.vario_2017)
+
+
+res.fit.model_2017 <- model_variogram(res.vario_2017, 2017, psill = 9000, range = 40000, nugget = 4800, model = "Sph")
+
+print(res.fit.model_2017)
+
+
+# Pour octobre 2018
+
+res.gstat_2018 <- gstat(formula = depth.res ~ 1, data = october_mean_2018, locations = ~x+y)
+res.vario_2018 <- variogram(res.gstat_2018, cutoff = 50000, width = 3000)
+plot(res.vario_2018)
+
+res.fit.model_2018 <- model_variogram(res.vario_2018, 2018, psill = 14500, range = 35000, nugget = 2500, model = "Sph")
+
+print(res.fit.model_2018)
+
+
+# Pour octobre 2019
+
+res.gstat_2019 <- gstat(formula = depth.res ~ 1, data = october_mean_2019, locations = ~x+y)
+res.vario_2019 <- variogram(res.gstat_2019, cutoff = 35000, width = 3500)
+plot(res.vario_2019)
+
+
+res.fit.model_2019 <- model_variogram(res.vario_2019, 2019, psill = 14500, range = 70000, nugget = 3000, model = "Exp")
+
+print(res.fit.model_2019)
+
+
+
+# Variogramme expérimental et modélisé pour octobre 2020
+res.vario_2020 <- exp_variogram(october_mean_2020)
+res.fit.model_2020 <- model_variogram(res.vario_2020, 2020, psill = 10000, range = 20000, nugget = 4000, model = "Exp")
+print(res.fit_model_2020)
+
+
+# Pour octobre 2021
+res.gstat_2021 <- gstat(formula = depth.res ~ 1, data = october_mean_2021, locations = ~x+y)
+res.vario_2021 <- variogram(res.gstat_2021, cutoff = 32000, width = 2000)
+plot(res.vario_2021)
+
+
+res.fit.model_2021 <- model_variogram(res.vario_2021, 2021, psill = 19000, range = 40000, nugget = 2500, model = "Sph")
+
+print(res.fit.model_2021)
+
+
+# Création d'une fonction qui trouve les valeurs extraordinaires dans le jeu de données (niveau 1 - alpha = 0.99 pour l'intervalle de prédiction)
+# La fonction retourne une liste: le premier élément est un vecteur contenant les indices des valeurs extraordinaires dans le jeu de données yearly_october_mean (ex: october_mean_2015).
+# Le 2e élément de la liste contient toutes les p-valeurs
+
+find_outliers <- function(yearly_october_mean, res.fit_model){
+  outliers <- c()
+  pvalue <- c()
+  alpha <- 0.01
+  Z <- qnorm(1-alpha/2)
+
+  for(i in 1:nrow(yearly_october_mean)){
+    pred.i <- krige(formula = depth.res ~ 1, # Kriging on the residuals
+                    data = yearly_october_mean[-i,],
+                    locations = ~x+y,
+                    newdata = yearly_october_mean[i,c("x","y")],
+                    model = res.fit_model)
+    
+    pred.interval <- c(pred.i$var1.pred - Z*sqrt(pred.i$var1.var), pred.i$var1.pred + Z*sqrt(pred.i$var1.var))
+    
+    outliers[i] <- ifelse(yearly_october_mean$depth.res[i] < pred.interval[1] | yearly_october_mean$depth.res[i] > pred.interval[2],1,0)
+    zscore <- (yearly_october_mean$depth.res[i] - pred.i$var1.pred)/sqrt(pred.i$var1.var)
+    pvalue[i] <- 2 * (1 - pnorm(abs(zscore)))
+  }
+  
+  which_out <- which(outliers == 1)
+  
+  results <- list(which_out, pvalue)
+  
+  return(results)
+    
+}
+
+# Loading the prediction grid
+depth.grid <- read.csv(file = "grid.csv", header = TRUE, sep = ",")
+depth.grid$X <- NULL # remove 1st column
+
+# Fonction qui trace la carte des prédictions de la profondeur de la nappe pour l'année souhaitée
+# Les valeurs extraordinaires précédemment identifiées sont marquées en rouge sur la carte
+# La fonction retourne les résultats du krigeage (sans les outliers) sous forme d'un dataframe
+
+plot_krig <- function(yearly_october_mean, res.fit_model, lm_year, which_out, pvalue){
+  # res_fit_model est le modèle du variogramme des résidus
+  
+  # Krigeage (pour les résidus) sans les valeurs aberrantes
+  res.krig.out <- krige(formula = depth.res~1, 
+                        data = yearly_october_mean[-which_out,], 
+                        loc = ~x+y, 
+                        newdata = depth.grid,
+                        model = res.fit_model)
+  
+  # Résulats du krigeage pour la profondeur de la nappe phréatique
+  # (prédicteur = résidu + valeur de la fonction espérance)
+  
+  # La grille d'interpolation depth.grid contient les mêmes points (x, y) que DEM_grid
+  xpred <- data.frame(elevation = DEM_grid$elevation)
+  depth.pred <- predict(lm_year, xpred, interval = "prediction")
+  depth.pred <- as.data.frame(depth.pred)
+  
+  # On obtient le prédicteur en additionnant le résultat du krigeage pour les résidus 
+  # aux valeurs d'espérance de la profondeur
+  
+  res.krig.out$depth.pred <- depth.pred$fit + res.krig.out$var1.pred
+  
+  min_depth <- min(yearly_october_mean$mean_gse_gwe)
+  
+  max_depth <- max(yearly_october_mean$mean_gse_gwe)
+  
+  p <- ggplot() + 
+    geom_tile(data = res.krig.out, aes(x = x, y = y, fill = depth.pred)) +
+    geom_point(data = yearly_october_mean[-which_out,], 
+               aes(x = x, y = y, color = "Points de mesure"), 
+               shape = 5,size = 1) +
+    
+    geom_point(data = yearly_october_mean[which_out,], 
+               aes(x, y, color = "Points aberrants"),
+               pch = 21, fill = NA, size = 3.5, stroke = 1) +
+    
+    scale_color_manual(values = c("Points aberrants" = "red", 
+                                  "Points de mesure" = "black"), 
+                       name = NULL) +
+    new_scale_color() +
+    
+    geom_point(data = yearly_october_mean[which_out,], 
+               aes(x, y, color = mean_gse_gwe), 
+               size = 2, stroke = 1, show.legend = FALSE) +
+    
+    scale_color_viridis(name = NULL, option = 'viridis', limits = c(min_depth, max_depth)) +
+    
+    geom_text_repel(data = yearly_october_mean[which_out, ],
+                    aes(x = x, y = y, 
+                        label = sprintf("%.2e", pvalue[which_out])),
+                    size = 3, color = "white", 
+                    nudge_x = 0.05,nudge_y = -0.1) +
+    
+    scale_fill_viridis(name = "GW depth [feet]", option = 'viridis',
+                       limits = c(min_depth, max_depth))  +
+    labs(title = paste("Prédictions par krigeage de la profondeur de la nappe phréatique en \n octobre", 
+                       yearly_october_mean$year[1], "et points aberrants avec leur p-valeurs associées", sep = " "), 
+         x = "x", 
+         y = "y")
+  
+  print(p)
+  
+  return(res.krig.out)
+
+}
+
+# fonctiom qui affiche les resutats du krigeage et (LOOCV)
+process_year <- function(year) {
+  # Dynamically access variables based on the year
+  october_mean <- get(paste0("october_mean_", year))
+  res_fit_model <- get(paste0("res.fit.model_", year))
+  lm_model <- get(paste0("lm_", year))
+  
+  # Find outliers
+  outliers <- find_outliers(october_mean, res_fit_model)
+  which_out <- outliers[[1]]
+  pvalue <- outliers[[2]]
+  
+  # Plot kriging
+  krig <- plot_krig(october_mean, res_fit_model, lm_model, which_out, pvalue)
+  
+  # Print results
+  cat("Year:", year, "\n")
+  cat("Expected number of outliers found with this method:", nrow(october_mean) * 0.01, "\n")
+  cat("Number of outliers found with the LOOCV method:", length(which_out), "\n\n")
+  
+  # Return results as a list if needed
+  list(which_out = which_out, pvalue = pvalue, krig = krig)
+}
+
+
+# 2015
+results_2015 <- process_year(2015)
+
+# 2016
+results_2016 <- process_year(2016)
+
+# 2017
+results_2017 <- process_year(2017)
+
+# 2018
+results_2018 <- process_year(2018)
+
+# 2019
+results_2019 <- process_year(2019)
+
+# 2020
+results_2020 <- process_year(2020)
+
+# 2021
+results_2021 <- process_year(2021)
+
+
