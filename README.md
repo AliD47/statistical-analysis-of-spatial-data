@@ -20,7 +20,7 @@ install.packages(c("ggplot2", "ggnewscale", "ggrepel", "gridExtra",
 ```
 and then just be sure to change the working directory in line 38:
 ```R
-setwd("C:/Users/Administrator/Desktop/STUDY/UCL/spacial stats")
+setwd("C:/ .... ")
 ```
 
 ---
