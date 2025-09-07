@@ -18,7 +18,7 @@ install.packages(c("ggplot2", "ggnewscale", "ggrepel", "gridExtra",
                    "viridis", "lubridate", "data.table", "fields", 
                    "gstat", "pander", "visreg", "matrixStats"))
 ```
-and then just be sure to change the working directory in the line 38:
+and then just be sure to change the working directory in line 38:
 ```R
 setwd("C:/Users/Administrator/Desktop/STUDY/UCL/spacial stats")
 ```
